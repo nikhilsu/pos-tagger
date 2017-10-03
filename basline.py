@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+from sklearn.model_selection import train_test_split
+
 q_0 = '-'
 q_f = '\n'
 
@@ -7,8 +9,10 @@ unk_word = '<UNK>'
 
 d = 0.75
 
+data_set_filename = 'berp-POS-training.txt'
 training_data_filename = 'berp-POS-training.txt'
-test_data_filename = 'test-data.txt'
+test_data_filename = 'assgn2-test-set.txt'
+# test_data_filename = 'test-data.txt'
 output_filename = 'out.txt'
 
 
@@ -57,7 +61,7 @@ class TestDataPreProcessor(object):
         sentences.append(sentence)
         return []
 
-    def convert_to_list_of_sentences(self):
+    def convert_to_list_of_tokenized_sentences(self):
         sentences_for_output = []
         sentences_for_test_data = []
         sentence_for_output = []
@@ -79,7 +83,7 @@ class TestDataOutput(object):
         self.sentences = sentences
 
     @staticmethod
-    def _write_to_file(filename, str_to_save_to_file):
+    def write_to_file(filename, str_to_save_to_file):
         file = open(filename, 'w')
         file.write(str_to_save_to_file)
         file.close()
@@ -91,7 +95,7 @@ class TestDataOutput(object):
                 str_to_save_to_file += str.format('{}\t{}\t{}\n', j + 1, self.sentences[i][j],
                                                   pos_tags_per_sentence[i][j])
             str_to_save_to_file += '\n'
-        self._write_to_file(filename, str_to_save_to_file)
+        self.write_to_file(filename, str_to_save_to_file)
 
 
 class Matrix(object):
@@ -214,19 +218,23 @@ class VectorFactor(MatrixFactory):
         return Matrix(vector)
 
 
-class Classifier(object):
+class BaselineClassifier(object):
     def __init__(self, that_training_data):
         self.training_data = that_training_data
 
-    def classify(self, words):
-        y = []
-        for index, word in enumerate(words):
-            prediction = ''
-            tags_with_counts = self.training_data.get(word.lower(), {})
-            if len(tags_with_counts) > 0:
-                prediction = max(tags_with_counts, key=tags_with_counts.get)
-            y.append('{}\t{}\t{}\n'.format(index + 1, word, prediction))
-        return y
+    def classify(self, sentences):
+        tag_per_sentence = []
+        for sentence in sentences:
+            tags = []
+            for word in sentence:
+                tag_word_count = [(tag, word_count[word]) for tag, word_count in self.training_data.matrix.items() if
+                         word_count.get(word, 0) != 0]
+                if len(tag_word_count) > 1:
+                    tags.append(max(tag_word_count, key=lambda tup: tup[1])[0])
+                else:
+                    tags.append('')
+            tag_per_sentence.append(tags)
+        return tag_per_sentence
 
 
 class Viterbi(object):
@@ -272,14 +280,45 @@ class Viterbi(object):
         return viterbi_matrices
 
 
+def split_training_data_to_test_data():
+    data_set = []
+    sentence = []
+    for line in open(data_set_filename):
+        if line == '\n':
+            data_set.append(sentence)
+            sentence = []
+        else:
+            sentence.append(line)
+
+    training_set, test_set = train_test_split(data_set, test_size=0.0001, random_state=132)
+
+    TestDataOutput.write_to_file(training_data_filename, str.join('\n', [str.join('', sent) for sent in training_set]) + '\n')
+    TestDataOutput.write_to_file(test_data_filename, str.join('\n', [str.join('', sent) for sent in test_set]) + '\n')
+
+
+def perform_baseline_classification():
+    global processor, test_data_sentences, output_sentences
+    processor = TestDataPreProcessor(test_data_filename, training_data)
+    test_data_sentences, output_sentences = processor.convert_to_list_of_tokenized_sentences()
+    classifier = BaselineClassifier(training_data)
+    pos_tags_per_sentence = classifier.classify(test_data_sentences)
+    TestDataOutput(output_sentences).save_with_tags(pos_tags_per_sentence, output_filename)
+
+
 if __name__ == '__main__':
+    # split_training_data_to_test_data()
+
     parser = InputParser(training_data_filename)
     training_data = parser.build_training_data()
+
+    # perform_baseline_classification()
+
+
     unique_tags = training_data.get_unique_tags()
     tags_in_sequence = parser.get_tags_in_sequence()
 
     processor = TestDataPreProcessor(test_data_filename, training_data)
-    test_data_sentences, output_sentences = processor.convert_to_list_of_sentences()
+    test_data_sentences, output_sentences = processor.convert_to_list_of_tokenized_sentences()
 
     factory = MatrixFactory(training_data, unique_tags, tags_in_sequence)
     transition_matrix = factory.build_transition_matrix()
@@ -291,13 +330,3 @@ if __name__ == '__main__':
     pos_tags_of_sentences = [matrix.get_best_tag_sequence() for matrix in matrices]
 
     TestDataOutput(output_sentences).save_with_tags(pos_tags_of_sentences, output_filename)
-
-    # print("\t" + "\t".join(x for x in unique_tags))
-    # print("".join(["-"] * 90))
-    # for ii in [q_0] + unique_tags:
-    #     print("%s:\t" % ii + "\t".join(str(transition_matrix[ii].get(x, 0))
-    #                                    for x in unique_tags))
-
-    # l = classify(['I', 'am', 'Nikhil'])
-    # for pred in l:
-    #     print(pred)
