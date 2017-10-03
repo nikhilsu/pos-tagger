@@ -9,12 +9,12 @@ unk_word = '<UNK>'
 
 d = 0.75
 
-data_set_filename = 'berp-POS-training.txt'
-training_data_filename = 'training_data.txt'
-# test_data_filename = 'assgn2-test-set.txt'
-# output_filename = 'sulegaon-nikhil-assgn2-test-output.txt'
-test_data_filename = 'test-data.txt'
-output_filename = 'out.txt'
+data_set_filename = 'data/berp-POS-training.txt'
+training_data_filename = 'data/training_data.txt'
+# test_data_filename = '../data/assgn2-test-set.txt'
+# output_filename = '../data/sulegaon-nikhil-assgn2-test-output.txt'
+test_data_filename = 'data/test-data.txt'
+output_filename = 'data/out.txt'
 
 
 class InputParser(object):
