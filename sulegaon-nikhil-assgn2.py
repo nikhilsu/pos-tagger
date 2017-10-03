@@ -10,9 +10,10 @@ unk_word = '<UNK>'
 d = 0.75
 
 data_set_filename = 'berp-POS-training.txt'
-training_data_filename = 'berp-POS-training.txt'
-test_data_filename = 'assgn2-test-set.txt'
-# test_data_filename = 'test-data.txt'
+training_data_filename = 'training_data.txt'
+# test_data_filename = 'assgn2-test-set.txt'
+# output_filename = 'sulegaon-nikhil-assgn2-test-output.txt'
+test_data_filename = 'test-data.txt'
 output_filename = 'out.txt'
 
 
@@ -110,25 +111,27 @@ class Matrix(object):
 
 
 class TransitionMatrix(Matrix):
-    def __init__(self, matrix, tag_bigram_model, tags_sequence):
+    def __init__(self, matrix, tag_bigram_model, start, end, tag_count_in_sequence):
         super().__init__(matrix)
         self.tag_bigram_count = tag_bigram_model
-        self.tags_in_sequence = tags_sequence
+        self.start = start
+        self.end = end
+        self.tag_count_in_sequence = tag_count_in_sequence
 
     def __number_of_times_tag_occurs(self, tag):
-        return self.tags_in_sequence.count(tag)
+        return self.tag_count_in_sequence.get(tag, 0)
 
     def __number_of_occurring_bigrams_starting_with(self, tag_a):
-        return len([tag_b for tag_b, count in self.tag_bigram_count[tag_a].items() if count > 0])
+        return self.start.get(tag_a, 0)
 
     def __number_of_occurring_bigrams_ending_with(self, tag_a):
-        return len([tag_two_count for tag_one, tag_two_count in self.tag_bigram_count.items()
-                    if tag_two_count.get(tag_a, 0) > 0])
+        return self.end.get(tag_a, 0)
 
     def __number_of_bigram_combinations(self):
         return len(self.tag_bigram_count) ** 2
 
     def get_smoothed_data(self, tag_a, tag_b):
+        # return self.matrix[tag_a][tag_b]
         times_tag_occurs = self.__number_of_times_tag_occurs(tag_a)
         term_a = max((self.tag_bigram_count[tag_a][tag_b] - d), 0) / times_tag_occurs
         lambda_parameter = d / times_tag_occurs * self.__number_of_occurring_bigrams_starting_with(tag_a)
@@ -188,13 +191,34 @@ class MatrixFactory(object):
     def __get_tag_count(self, tag_a):
         return self.tags_in_sequence.count(tag_a)
 
+    def __get_bigram_start_end_matrix(self):
+        tag_bigram_count = self.__get_tags_bigram_count()
+        bigram_starts_with_tag_matrix = {}
+        bigram_ends_with_tag_matrix = {}
+        for tag in training_data.get_unique_tags():
+            bigram_starts_with_tag_matrix[tag] = len(
+                [tag_b for tag_b, count in tag_bigram_count[tag].items() if count > 0])
+            bigram_ends_with_tag_matrix[tag] = len([tag_two_count for tag_one, tag_two_count in tag_bigram_count.items()
+                                                    if tag_two_count.get(tag, 0) > 0])
+        return bigram_starts_with_tag_matrix, bigram_ends_with_tag_matrix
+
+    def __get_tag_count_in_sequence(self):
+        tag_count_in_sequence = dict()
+        for tag in [q_0] + self.unique_tags + [q_f]:
+            tag_count_in_sequence[tag] = self.tags_in_sequence.count(tag)
+        return  tag_count_in_sequence
+
     def build_transition_matrix(self):
+        start_mat, end_mat = self.__get_bigram_start_end_matrix()
+        tag_count_in_sequence = self.__get_tag_count_in_sequence()
         matrix = self.__build_dictionary_of_dictionary()
         tags_bigram_count = self.__get_tags_bigram_count()
         for tag_a, tag_b_count in tags_bigram_count.items():
             for tag_b, count in tag_b_count.items():
                 matrix[tag_a][tag_b] = count / self.__get_tag_count(tag_a)
-        return TransitionMatrix(matrix, tags_bigram_count, self.tags_in_sequence)
+
+        return TransitionMatrix(matrix, tags_bigram_count, start_mat, end_mat, tag_count_in_sequence)
+
 
     def build_emission_matrix(self):
         emission_probability_of_unk_word = 1 / len(self.training_data.get_unique_tags())
@@ -228,7 +252,7 @@ class BaselineClassifier(object):
             tags = []
             for word in sentence:
                 tag_word_count = [(tag, word_count[word]) for tag, word_count in self.training_data.matrix.items() if
-                         word_count.get(word, 0) != 0]
+                                  word_count.get(word, 0) != 0]
                 if len(tag_word_count) > 1:
                     tags.append(max(tag_word_count, key=lambda tup: tup[1])[0])
                 else:
@@ -252,8 +276,7 @@ class Viterbi(object):
     def run(self, sentences):
         viterbi_matrices = []
         for tokenized_sentence in sentences:
-            viterbi_matrix = dict(
-                (tag, (dict((word, tuple()) for word in tokenized_sentence))) for tag in self.all_tags)
+            viterbi_matrix = dict((tag, dict(tuple())) for tag in self.all_tags)
             first_word = tokenized_sentence[0]
             for tag in self.all_tags:
                 viterbi_matrix[tag][first_word] = (self.emission_matrix[tag].get(first_word, 0) *
@@ -290,7 +313,7 @@ def split_training_data_to_test_data():
         else:
             sentence.append(line)
 
-    training_set, test_set = train_test_split(data_set, test_size=0.0001, random_state=132)
+    training_set, test_set = train_test_split(data_set, test_size=0.1, random_state=132)
 
     TestDataOutput.write_to_file(training_data_filename, str.join('\n', [str.join('', sent) for sent in training_set]) + '\n')
     TestDataOutput.write_to_file(test_data_filename, str.join('\n', [str.join('', sent) for sent in test_set]) + '\n')
@@ -306,13 +329,12 @@ def perform_baseline_classification():
 
 
 if __name__ == '__main__':
-    # split_training_data_to_test_data()
+    split_training_data_to_test_data()
 
     parser = InputParser(training_data_filename)
     training_data = parser.build_training_data()
 
     # perform_baseline_classification()
-
 
     unique_tags = training_data.get_unique_tags()
     tags_in_sequence = parser.get_tags_in_sequence()
