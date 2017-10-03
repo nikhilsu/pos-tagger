@@ -3,6 +3,8 @@ from collections import defaultdict
 q_0 = '-'
 q_f = '\n'
 
+d = 0.25
+
 training_data_filename = 'berp-POS-training.txt'
 test_data_filename = 'test-data.txt'
 output_filename = 'out.txt'
@@ -90,12 +92,31 @@ class Matrix(object):
 
 
 class TransitionMatrix(Matrix):
-    def __init__(self, matrix):
+    def __init__(self, matrix, tag_bigram_model, tags_in_sequence):
         super().__init__(matrix)
+        self.tag_bigram_count = tag_bigram_model
+        self.tags_in_sequence = tags_in_sequence
+
+    def __number_of_times_tag_occurs(self, tag):
+        return self.tags_in_sequence.count(tag)
+
+    def __number_of_occurring_bigrams_starting_with(self, tag_a):
+        return len([tag_b for tag_b, count in self.tag_bigram_count[tag_a].items() if count > 0])
+
+    def __number_of_occurring_bigrams_ending_with(self, tag_a):
+        return len([tag_two_count for tag_one, tag_two_count in self.tag_bigram_count.items()
+                    if tag_two_count.get(tag_a, 0) > 0])
+
+    def __number_of_bigram_combinations(self):
+        return len(self.tag_bigram_count) ** 2
 
     def get_smoothed_data(self, tag_a, tag_b):
-        return self.matrix[tag_a][tag_b]
+        times_tag_occurs = self.__number_of_times_tag_occurs(tag_a)
+        term_a = max((self.tag_bigram_count[tag_a][tag_b] - d), 0) / times_tag_occurs
+        lambda_parameter = d / times_tag_occurs * self.__number_of_occurring_bigrams_starting_with(tag_a)
+        p_continuation = self.__number_of_occurring_bigrams_ending_with(tag_a) / self.__number_of_bigram_combinations()
 
+        return term_a + (lambda_parameter * p_continuation)
 
 
 class TrainingData(Matrix):
@@ -147,10 +168,11 @@ class MatrixFactory(object):
 
     def build_transition_matrix(self):
         matrix = self.__build_dictionary_of_dictionary()
-        for tag_a, tag_b_count in self.__get_tags_bigram_count().items():
+        tags_bigram_count = self.__get_tags_bigram_count()
+        for tag_a, tag_b_count in tags_bigram_count.items():
             for tag_b, count in tag_b_count.items():
                 matrix[tag_a][tag_b] = count / self.__get_tag_count(tag_a)
-        return TransitionMatrix(matrix)
+        return TransitionMatrix(matrix, tags_bigram_count, self.tags_in_sequence)
 
     def build_emission_matrix(self):
         matrix = dict(self.training_data.matrix)
@@ -214,14 +236,16 @@ class Viterbi(object):
                 for tag in self.all_tags:
                     all_viterbi_values = [viterbi_matrix[previous_tag][tokenized_sentence[i - 1]][0] *
                                           self.emission_matrix[tag].get(word, 0) *
-                                          self.transition_matrix.get_smoothed_data(previous_tag, tag) for previous_tag in self.all_tags]
+                                          self.transition_matrix.get_smoothed_data(previous_tag, tag) for previous_tag
+                                          in self.all_tags]
                     viterbi_matrix[tag][word] = self.__get_max_value_tag_tuple(all_viterbi_values)
                 i += 1
 
             last_word = tokenized_sentence[-1]
             for tag in self.all_tags:
                 all_viterbi_values = [viterbi_matrix[previous_tag][tokenized_sentence[-2]][0] *
-                                      self.transition_matrix.get_smoothed_data(previous_tag, q_f) for previous_tag in self.all_tags]
+                                      self.transition_matrix.get_smoothed_data(previous_tag, q_f) for previous_tag
+                                      in self.all_tags]
                 viterbi_matrix[tag][last_word] = self.__get_max_value_tag_tuple(all_viterbi_values)
 
             viterbi_matrices.append(ViterbiMatrix(viterbi_matrix, tokenized_sentence))
