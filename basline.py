@@ -3,7 +3,9 @@ from collections import defaultdict
 q_0 = '-'
 q_f = '\n'
 
-d = 0.25
+unk_word = '<UNK>'
+
+d = 0.75
 
 training_data_filename = 'berp-POS-training.txt'
 test_data_filename = 'test-data.txt'
@@ -34,30 +36,42 @@ class InputParser(object):
 
     def build_training_data(self):
         train_data = defaultdict(dict)
+        vocabulary = set()
         for sentence in self.__get_only_sentences():
             position, word, tag = sentence.split('\t')
             word = word.lower().strip()
             tag = tag.strip()
+            vocabulary.add(word)
             train_data[tag][word] = train_data.get(tag, {}).get(word, 0) + 1
-        return TrainingData(train_data)
+        return TrainingData(train_data, list(vocabulary))
 
 
 class TestDataPreProcessor(object):
-    def __init__(self, filename):
+    def __init__(self, filename, that_training_data):
         self.filename = filename
+        self.training_data = that_training_data
+
+    @staticmethod
+    def __reset(sentence, sentences):
+        sentence.append(q_f)
+        sentences.append(sentence)
+        return []
 
     def convert_to_list_of_sentences(self):
-        sentences = []
-        sentence = []
+        sentences_for_output = []
+        sentences_for_test_data = []
+        sentence_for_output = []
+        sentence_for_test_data = []
         for row in open(self.filename):
             row_array = row.split('\t')
             if len(row_array) == 1:
-                sentence.append(q_f)
-                sentences.append(sentence)
-                sentence = []
+                sentence_for_output = self.__reset(sentence_for_output, sentences_for_output)
+                sentence_for_test_data = self.__reset(sentence_for_test_data, sentences_for_test_data)
             else:
-                sentence.append(row_array[1].strip())
-        return sentences
+                word = row_array[1].strip()
+                sentence_for_output.append(word)
+                sentence_for_test_data.append(unk_word if self.training_data.is_unknown_word(word) else word)
+        return sentences_for_test_data, sentences_for_output
 
 
 class TestDataOutput(object):
@@ -92,10 +106,10 @@ class Matrix(object):
 
 
 class TransitionMatrix(Matrix):
-    def __init__(self, matrix, tag_bigram_model, tags_in_sequence):
+    def __init__(self, matrix, tag_bigram_model, tags_sequence):
         super().__init__(matrix)
         self.tag_bigram_count = tag_bigram_model
-        self.tags_in_sequence = tags_in_sequence
+        self.tags_in_sequence = tags_sequence
 
     def __number_of_times_tag_occurs(self, tag):
         return self.tags_in_sequence.count(tag)
@@ -120,11 +134,15 @@ class TransitionMatrix(Matrix):
 
 
 class TrainingData(Matrix):
-    def __init__(self, matrix):
+    def __init__(self, matrix, vocabulary_of_corpus):
         super().__init__(matrix)
+        self.vocabulary_of_corpus = vocabulary_of_corpus
 
     def get_unique_tags(self):
         return list(self.matrix.keys())
+
+    def is_unknown_word(self, word):
+        return word not in self.vocabulary_of_corpus
 
 
 class ViterbiMatrix(Matrix):
@@ -175,10 +193,12 @@ class MatrixFactory(object):
         return TransitionMatrix(matrix, tags_bigram_count, self.tags_in_sequence)
 
     def build_emission_matrix(self):
+        emission_probability_of_unk_word = 1 / len(self.training_data.get_unique_tags())
         matrix = dict(self.training_data.matrix)
         for tag, word_count in self.training_data.items():
             for word in word_count.keys():
                 matrix[tag][word] = self.training_data[tag][word] / self.__get_tag_count(tag)
+            matrix[tag][unk_word] = emission_probability_of_unk_word
         return Matrix(matrix)
 
 
@@ -258,8 +278,8 @@ if __name__ == '__main__':
     unique_tags = training_data.get_unique_tags()
     tags_in_sequence = parser.get_tags_in_sequence()
 
-    processor = TestDataPreProcessor(test_data_filename)
-    test_data_sentences = processor.convert_to_list_of_sentences()
+    processor = TestDataPreProcessor(test_data_filename, training_data)
+    test_data_sentences, output_sentences = processor.convert_to_list_of_sentences()
 
     factory = MatrixFactory(training_data, unique_tags, tags_in_sequence)
     transition_matrix = factory.build_transition_matrix()
@@ -270,7 +290,7 @@ if __name__ == '__main__':
 
     pos_tags_of_sentences = [matrix.get_best_tag_sequence() for matrix in matrices]
 
-    TestDataOutput(test_data_sentences).save_with_tags(pos_tags_of_sentences, output_filename)
+    TestDataOutput(output_sentences).save_with_tags(pos_tags_of_sentences, output_filename)
 
     # print("\t" + "\t".join(x for x in unique_tags))
     # print("".join(["-"] * 90))

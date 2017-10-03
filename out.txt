@@ -13,7 +13,7 @@
 2	'd	MD
 3	like	VB
 4	french	JJ
-5	food	NN
+5	foodzz	NN
 6	.	.
 
 1	next	JJ
